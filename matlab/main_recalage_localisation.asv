@@ -108,7 +108,7 @@ iTloc_instr_mark = inv(loc.mark(instr_idx).T);
 Tloc_cam_mark = loc.mark(cam_idx).T;
 iTcam_mark_cam = inv(Tcam_mark_cam);
 % On calcule l'ensemble de transformations
-Trobot_cam = Tbase_eff*T_eff_instr_mark*iTloc_instr_mark*Tloc_cam_mark*iTcam_mark_cam;
+Trobot_cam = Tbase T_eff_instr_mark*iTloc_instr_mark*Tloc_cam_mark*iTcam_mark_cam;
 
 %% On donne une cieble example
 command = h_unpack(Trobot_cam*h_pack(target));
