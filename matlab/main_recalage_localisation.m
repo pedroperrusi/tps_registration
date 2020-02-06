@@ -142,7 +142,7 @@ d_instr(:,2) = get_orientation(eff_position(:,2), instr_position(:,2));
 A = [d_instr(:, 1) -d_instr(:, 2)];
 b =  eff_position(:,2) - eff_position(:,1);
 x = A\b;
-trocard_robot = eff_position(:,2) + x(2)*d_instr(:,2);
+trocard_base = eff_position(:,2) + x(2)*d_instr(:,2);
 
 disp('Trocar triangulation error')
 erreur = norm(eff_position(:,1) + x(1)*d_instr(:,1) - (eff_position(:,2) + x(2)*d_instr(:,2)));
@@ -160,12 +160,12 @@ Tloc_cam = Tloc_cam_mark*iTcam_mark_cam;
 Trobot_cam = Trobot_loc*Tloc_cam;
 
 %% On donne une cieble example
-target_robot = h_unpack(Trobot_cam*h_pack(target));
+cible_base = h_unpack(Trobot_cam*h_pack(target));
 % On retrouve la direction de translation
-dir = get_orientation(target_robot, trocard_robot);
+dir = get_orientation(cible_base, trocard_base);
 decalage = h_unpack(Teff_inst(3,4)*h_pack(dir));
 % On applique la transformation entre effecteur et l'instrument
-command = decalage + target_robot;
+command = decalage + cible_base;
 MoveEffPosition(command)
 DisplayConfig
 disp('Localisation Based Position Control')
@@ -216,7 +216,7 @@ d_instr(:,2) = get_orientation(eff_position(:,2), instr_position(:,2));
 A = [d_instr(:, 1) -d_instr(:, 2)];
 b =  eff_position(:,2) - eff_position(:,1);
 x = A\b;
-trocard_robot = eff_position(:,2) + x(2)*d_instr(:,2);
+trocard_base = eff_position(:,2) + x(2)*d_instr(:,2);
 
 disp('Trocar triangulation error')
 erreur = norm(eff_position(:,1) + x(1)*d_instr(:,1) - (eff_position(:,2) + x(2)*d_instr(:,2)));
@@ -228,13 +228,41 @@ target = targets_cam(:,end);
 Trobot_effector = GetRobotCurrentPosition(flag_noise);
 Tcam_inst = GetInstrumentPosition(flag);
 Trobot_cam = Trobot_effector*Teff_inst*inv(Tcam_inst);
-target_robot = h_unpack(Trobot_cam*h_pack(target));
+cible_base = h_unpack(Trobot_cam*h_pack(target));
 % On retrouve la direction de translation
-dir = get_orientation(target_robot, trocard_robot);
+dir = get_orientation(cible_base, trocard_base);
 decalage = h_unpack(Teff_inst(3,4)*h_pack(dir));
 % On applique la transformation entre effecteur et l'instrument
-command = decalage + target_robot;
+command = decalage + cible_base;
 MoveEffPosition(command)
 DisplayConfig
 disp('Instrument Based Position Control')
 pause;
+
+%% Analyse des erreurs
+%% Propagation des Erreurs
+%% Simulations numeriques
+% si on ajoute une incertitude sur la mesure de position du trocard
+sig = [1; 1; 1];
+N = 50;
+measures = zeros(3, N);
+ecarts = zeros(3, N);
+error_covariance = zeros(3);
+Effecteur = command;
+for i = 1 : N
+    Ti = trocard_base + sig.*randn(3, 1);
+    dir_i = get_orientation(Effecteur, Ti);
+    decalage_i = Teff_inst(3,4).*dir_i;
+    % On applique la transformation entre effecteur et l'instrument
+    measures(:,i) = Effecteur + decalage_i;
+    ecarts(:,i) = cible_base - measures(:,i);
+    error_covariance = error_covariance + (ecarts(:,i)*ecarts(:,i)')./N;
+end
+% On compute les axis principales
+[U,S,V] = svd(error_covariance);
+% On observe que les erreurs dans les distances axiales n'ont pas beaucoup
+% d'impact dans l'erreur de position
+disp('Direction ou lerreur est le plus faible')
+disp(V(:,end));
+center = h_unpack(Tworld_base*h_pack(cible_base));
+plot_ellipsoid(center, U, diag(S), 10)
