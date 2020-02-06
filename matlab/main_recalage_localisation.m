@@ -167,5 +167,4 @@ decalage = h_unpack(Teff_inst(3,4)*h_pack(dir));
 % On applique la transformation entre effecteur et l'instrument
 command = decalage + target_robot;
 MoveEffPosition(command)
-
 DisplayConfig

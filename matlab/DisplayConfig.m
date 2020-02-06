@@ -30,7 +30,7 @@ GetInstrumentPosition;
 A = gca;
 set(A, 'View', vue);
 set(A, 'Position', pos);
-view(0,0)   % XZ
+view(30,15)   % XZ
 figure(2);
 clf;
 hold on;
