@@ -99,7 +99,22 @@ targets_img(:,2) = iK*h_pack(GetTargetPosition(flag_noise));
 loc{2} = GetLocalizerInformation(flag_noise);
 % get camera rigid transformation
 T12 = Tcam_mark_cam*inv(loc{1}.mark(cam_idx).T)*loc{2}.mark(cam_idx).T*inv(Tcam_mark_cam);
-[targets_cam(:,1), targets_cam(:,2)] = multi_view_triangulation(T12, targets_img(:,1), targets_img(:,2));
+[targets_cam(:,1), targets_cam(:,2), err2d] = multi_view_triangulation(T12, targets_img(:,1), targets_img(:,2));
+disp('2D triangulation error')
+disp(err2d)
+
+% Validate triangulation
+iTcam_mark_cam = inv(Tcam_mark_cam);
+Tloc_cam_mark{1} = loc{1}.mark(cam_idx).T;
+Tloc_cam{1} = Tloc_cam_mark{1}*iTcam_mark_cam;
+target_loc{1} = h_unpack(Tloc_cam{1}*h_pack(targets_cam(:,1)));
+
+Tloc_cam_mark{2} = loc{2}.mark(cam_idx).T;
+Tloc_cam{2} = Tloc_cam_mark{2}*iTcam_mark_cam;
+target_loc{2} = h_unpack(Tloc_cam{2}*h_pack(targets_cam(:,2)));
+disp('3D triangulation error')
+disp(norm(target_loc{1} - target_loc{2}))
+
 
 %% On estime la position des trocarts
 % a partir de quelques mouvements du robot on peut deduire le position des
@@ -109,30 +124,28 @@ T12 = Tcam_mark_cam*inv(loc{1}.mark(cam_idx).T)*loc{2}.mark(cam_idx).T*inv(Tcam_
 % On a besoin de ce information une fois que l'orientation de l'effecteur
 % terminal n'est pas controle - c'est une joint passive.
 
+% Par triangulation
+% On a besoin de ce information une fois que l'orientation de l'effecteur
+% terminal n'est pas controle - c'est une joint passive.
+get_translation = @(Th) h_unpack(Th*[0 0 0 1]');
+get_orientation = @(p1, p2) (p2-p1)./norm(p2-p1);
 % On peut s'utiliser des memes mesures obtenues pour le hand eye calibration
-eff_position = transf_base_effector(1:3,4,:);
-instr_orientation = transf_base_effector(1:3,1:3,:);
-% On genere un systeme lineaire du type
-% R_base_eff*P_eff_instr + t_base_eff = P_base_eff
-A = [];
-b = [];
-N = size(eff_position, 3);
-% assemble linear system
-for ii = 1 : N
-    A = [A;
-         [instr_orientation(:,1,ii)';
-         instr_orientation(:,2,ii)';
-         instr_orientation(:,3,ii)'] -eye(3)];
-    b = [b;
-         -eff_position(:,:,ii)];
-end
-% solve it
-X = A\b;
-P_eff_instr = X(1:3);
-P_base_eff = X(4:6);
-instr_R = thetau2r(P_base_eff);
-instr_R = [instr_R zeros(3,1); 
-           zeros(1,3) 1];
+eff_position = reshape(positions(:,:,1:2), 3, 2);
+instr_position(:,1) = get_translation(transf_base_effector(:,:,1)*Teff_inst);
+d_instr(:,1) = get_orientation(eff_position(:,1), instr_position(:,1));
+instr_position(:,2) = get_translation(transf_base_effector(:,:,2)*Teff_inst);
+d_instr(:,2) = get_orientation(eff_position(:,2), instr_position(:,2));
+% On assemble le systeme lineaire
+% Trocard = eff1 - x(1)*d_instr1 = eff2 + x(2)*d_instr2
+% [d_instr1 d_instr2]*x = [eff1; eff2]
+A = [d_instr(:, 1) -d_instr(:, 2)];
+b =  eff_position(:,2) - eff_position(:,1);
+x = A\b;
+trocard_robot = eff_position(:,2) + x(2)*d_instr(:,2);
+
+disp('Trocar triangulation error')
+erreur = norm(eff_position(:,1) + x(1)*d_instr(:,1) - (eff_position(:,2) + x(2)*d_instr(:,2)));
+disp(erreur)
 %% On retrouve la transformation robot -> camera
 target = targets_cam(:,end);
 loc = GetLocalizerInformation(flag_noise);
@@ -141,11 +154,16 @@ iTloc_instr_mark = inv(loc.mark(instr_idx).T);
 Tloc_cam_mark = loc.mark(cam_idx).T;
 iTcam_mark_cam = inv(Tcam_mark_cam);
 % On calcule l'ensemble de transformations
-Trobot_cam = Tbase_eff*T_eff_instr_mark*iTloc_instr_mark*Tloc_cam_mark*iTcam_mark_cam;
+Trobot_loc = Trobot_effector*T_eff_instr_mark*iTloc_instr_mark;
+Tloc_cam = Tloc_cam_mark*iTcam_mark_cam;
+Trobot_cam = Trobot_loc*Tloc_cam;
 
 %% On donne une cieble example
-command = h_unpack(Trobot_cam*h_pack(target));
+target_robot = h_unpack(Trobot_cam*h_pack(target));
+% On retrouve la direction de translation
+dir = get_orientation(target_robot, trocard_robot);
+decalage = h_unpack(Teff_inst(3,4)*h_pack(dir));
 % On applique la transformation entre effecteur et l'instrument
-instr_command = h_unpack(instr_R*Teff_inst(1:4,4)) + command;
-MoveEffPosition(instr_command)
+command = decalage + target_robot;
+MoveEffPosition(command)
 DisplayConfig
