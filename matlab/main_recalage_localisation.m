@@ -168,3 +168,73 @@ decalage = h_unpack(Teff_inst(3,4)*h_pack(dir));
 command = decalage + target_robot;
 MoveEffPosition(command)
 DisplayConfig
+disp('Localisation Based Position Control')
+pause;
+
+%% Question 4
+% On bouge l'instrument un petit peu pour l'?carter de la cieble
+sig_position = [10;10;5];
+position_ecart = command + sig_position.*randn(3,1);
+MoveEffPosition(position_ecart)
+DisplayConfig
+disp('Slight deplacement of the instrument')
+pause;
+
+%% On est capable de retrouver le profondeur de la cieble par triangulation
+K = [400 0 380;
+     0 400 285;
+     0   0  1];
+iK = inv(K);
+n_measures = 2;
+targets_img = zeros(3, n_measures);
+targets_cam = zeros(3, n_measures);
+targets_img(:,1) = iK*h_pack(GetTargetPosition(flag_noise));
+Tcam_inst{1} = GetInstrumentPosition(flag_noise);
+% move camera to get a new perspective
+trans = -trans;
+angle = 0;
+MoveCamera(trans, angle);
+targets_img(:,2) = iK*h_pack(GetTargetPosition(flag_noise));   
+Tcam_inst{2} = GetInstrumentPosition(flag_noise);
+% get camera rigid transformation
+T12 = Tcam_inst{1}*inv(Tcam_inst{2});
+[targets_cam(:,1), targets_cam(:,2), err2d] = multi_view_triangulation(T12, targets_img(:,1), targets_img(:,2));
+disp('2D triangulation error')
+disp(err2d)
+
+%% On estime la position des trocarts
+% On peut s'utiliser des memes mesures obtenues pour le hand eye calibration
+eff_position = reshape(positions(:,:,1:2), 3, 2);
+instr_position(:,1) = get_translation(transf_base_effector(:,:,1)*Teff_inst);
+d_instr(:,1) = get_orientation(eff_position(:,1), instr_position(:,1));
+instr_position(:,2) = get_translation(transf_base_effector(:,:,2)*Teff_inst);
+
+d_instr(:,2) = get_orientation(eff_position(:,2), instr_position(:,2));
+% On assemble le systeme lineaire
+% Trocard = eff1 - x(1)*d_instr1 = eff2 + x(2)*d_instr2
+% [d_instr1 d_instr2]*x = [eff1; eff2]
+A = [d_instr(:, 1) -d_instr(:, 2)];
+b =  eff_position(:,2) - eff_position(:,1);
+x = A\b;
+trocard_robot = eff_position(:,2) + x(2)*d_instr(:,2);
+
+disp('Trocar triangulation error')
+erreur = norm(eff_position(:,1) + x(1)*d_instr(:,1) - (eff_position(:,2) + x(2)*d_instr(:,2)));
+disp(erreur)
+
+%% On retrouve la transformation robot -> camera
+target = targets_cam(:,end);
+% Mesures de position de l'instrument
+Trobot_effector = GetRobotCurrentPosition(flag_noise);
+Tcam_inst = GetInstrumentPosition(flag);
+Trobot_cam = Trobot_effector*Teff_inst*inv(Tcam_inst);
+target_robot = h_unpack(Trobot_cam*h_pack(target));
+% On retrouve la direction de translation
+dir = get_orientation(target_robot, trocard_robot);
+decalage = h_unpack(Teff_inst(3,4)*h_pack(dir));
+% On applique la transformation entre effecteur et l'instrument
+command = decalage + target_robot;
+MoveEffPosition(command)
+DisplayConfig
+disp('Instrument Based Position Control')
+pause;
