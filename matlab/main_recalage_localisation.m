@@ -108,31 +108,22 @@ T12 = Tcam_mark_cam*inv(loc{1}.mark(cam_idx).T)*loc{2}.mark(cam_idx).T*inv(Tcam_
 
 % On a besoin de ce information une fois que l'orientation de l'effecteur
 % terminal n'est pas controle - c'est une joint passive.
-
+get_translation = @(Th) h_unpack(Th*[0 0 0 1]');
+get_orientation = @(p1, p2) (p2-p1)./norm(p2-p1);
 % On peut s'utiliser des memes mesures obtenues pour le hand eye calibration
-eff_position = transf_base_effector(1:3,4,:);
-instr_orientation = transf_base_effector(1:3,1:3,:);
-% On genere un systeme lineaire du type
-% R_base_eff*P_eff_instr + t_base_eff = P_base_eff
-A = [];
-b = [];
-N = size(eff_position, 3);
-% assemble linear system
-for ii = 1 : N
-    A = [A;
-         [instr_orientation(:,1,ii)';
-         instr_orientation(:,2,ii)';
-         instr_orientation(:,3,ii)'] -eye(3)];
-    b = [b;
-         -eff_position(:,:,ii)];
-end
-% solve it
-X = A\b;
-P_eff_instr = X(1:3);
-P_base_eff = X(4:6);
-instr_R = thetau2r(P_base_eff);
-instr_R = [instr_R zeros(3,1); 
-           zeros(1,3) 1];
+eff_position = reshape(positions(:,:,1:2), 3, 2);
+instr_position(:,1) = get_translation(transf_base_effector(:,:,1)*Teff_inst);
+d_instr(:,1) = get_orientation(eff_position(:,1), instr_position(:,1));
+instr_position(:,2) = get_translation(Teff_inst*transf_base_effector(:,:,2)*Teff_inst);
+d_instr(:,2) = get_orientation(eff_position(:,2), instr_position(:,2));
+% On assemble le systeme lineaire
+% Trocard = eff1 - x(1)*d_instr1 = eff2 + x(2)*d_instr2
+% [d_instr1 d_instr2]*x = [eff1; eff2]
+A = d_instr;
+b =  eff_position(:,1) - eff_position(:,2);
+x = A\b;
+trocard = eff_position(:,2) + x(2)*d_instr(:,2);
+
 %% On retrouve la transformation robot -> camera
 target = targets_cam(:,end);
 loc = GetLocalizerInformation(flag_noise);
@@ -144,8 +135,13 @@ iTcam_mark_cam = inv(Tcam_mark_cam);
 Trobot_cam = Tbase_eff*T_eff_instr_mark*iTloc_instr_mark*Tloc_cam_mark*iTcam_mark_cam;
 
 %% On donne une cieble example
-command = h_unpack(Trobot_cam*h_pack(target));
+% On calcule la direction de l'instrument
+target_robot = h_unpack(Trobot_cam*h_pack(target));
+instr_R = thetau2r(trocard-target_robot);
+instr_R = [instr_R zeros(3,1); 
+           zeros(1,3) 1];
+T_trocar = instr_R*Teff_inst;
 % On applique la transformation entre effecteur et l'instrument
-instr_command = h_unpack(instr_R*Teff_inst(1:4,4)) + command;
-MoveEffPosition(instr_command)
+command = h_unpack(T_trocar*h_pack(target_robot));
+MoveEffPosition(trocard)
 DisplayConfig
