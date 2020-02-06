@@ -265,4 +265,8 @@ end
 disp('Direction ou lerreur est le plus faible')
 disp(V(:,end));
 center = h_unpack(Tworld_base*h_pack(cible_base));
-plot_ellipsoid(center, U, diag(S), 10)
+rotation = Tworld_base(1:3, 1:3) * V;
+DisplayConfig;
+plot_ellipsoid(center, rotation, diag(S), 10);
+disp('Elipsoide derreurs estimees')
+pause;
