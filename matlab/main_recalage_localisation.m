@@ -7,7 +7,7 @@ flag_draw = false;
 flag_noise = false;
 cam_idx = 1;
 instr_idx = 2;
-n_measures = 3; % >= 3
+n_measures = 5; % >= 3
 %% On estime la transformation marqueur instrument par deux mesures
 % Ax = xB
 % Teff1->eff2 x = x Tm1->m2
@@ -137,7 +137,7 @@ instr_position(:,2) = get_translation(transf_base_effector(:,:,2)*Teff_inst);
 
 d_instr(:,2) = get_orientation(eff_position(:,2), instr_position(:,2));
 % On assemble le systeme lineaire
-% Trocard = eff1 - x(1)*d_instr1 = eff2 + x(2)*d_instr2
+% Trocard = eff1 + x(1)*d_instr1 = eff2 + x(2)*d_instr2
 % [d_instr1 d_instr2]*x = [eff1; eff2]
 A = [d_instr(:, 1) -d_instr(:, 2)];
 b =  eff_position(:,2) - eff_position(:,1);
@@ -148,7 +148,7 @@ disp('Trocar triangulation error')
 erreur = norm(eff_position(:,1) + x(1)*d_instr(:,1) - (eff_position(:,2) + x(2)*d_instr(:,2)));
 disp(erreur)
 %% On retrouve la transformation robot -> camera
-target = targets_cam(:,end);
+cieble_cam = targets_cam(:,end);
 loc = GetLocalizerInformation(flag_noise);
 Trobot_effector = GetRobotCurrentPosition(flag_noise);
 iTloc_instr_mark = inv(loc.mark(instr_idx).T);
@@ -160,7 +160,7 @@ Tloc_cam = Tloc_cam_mark*iTcam_mark_cam;
 Trobot_cam = Trobot_loc*Tloc_cam;
 
 %% On donne une cieble example
-cible_base = h_unpack(Trobot_cam*h_pack(target));
+cible_base = h_unpack(Trobot_cam*h_pack(cieble_cam));
 % On retrouve la direction de translation
 dir = get_orientation(cible_base, trocard_base);
 decalage = h_unpack(Teff_inst(3,4)*h_pack(dir));
@@ -203,35 +203,20 @@ disp('2D triangulation error')
 disp(err2d)
 
 %% On estime la position des trocarts
-% On peut s'utiliser des memes mesures obtenues pour le hand eye calibration
-eff_position = reshape(positions(:,:,1:2), 3, 2);
-instr_position(:,1) = get_translation(transf_base_effector(:,:,1)*Teff_inst);
-d_instr(:,1) = get_orientation(eff_position(:,1), instr_position(:,1));
-instr_position(:,2) = get_translation(transf_base_effector(:,:,2)*Teff_inst);
-
-d_instr(:,2) = get_orientation(eff_position(:,2), instr_position(:,2));
-% On assemble le systeme lineaire
-% Trocard = eff1 - x(1)*d_instr1 = eff2 + x(2)*d_instr2
-% [d_instr1 d_instr2]*x = [eff1; eff2]
-A = [d_instr(:, 1) -d_instr(:, 2)];
-b =  eff_position(:,2) - eff_position(:,1);
-x = A\b;
-trocard_base = eff_position(:,2) + x(2)*d_instr(:,2);
-
-disp('Trocar triangulation error')
-erreur = norm(eff_position(:,1) + x(1)*d_instr(:,1) - (eff_position(:,2) + x(2)*d_instr(:,2)));
-disp(erreur)
+% On la connait d?j?...
+% Le systeme de localisation n'est pas utilise pour retrouver la position
+% des trocarts.
 
 %% On retrouve la transformation robot -> camera
-target = targets_cam(:,end);
+cieble_cam = targets_cam(:,end);
 % Mesures de position de l'instrument
 Trobot_effector = GetRobotCurrentPosition(flag_noise);
 Tcam_inst = GetInstrumentPosition(flag);
 Trobot_cam = Trobot_effector*Teff_inst*inv(Tcam_inst);
-cible_base = h_unpack(Trobot_cam*h_pack(target));
+cible_base = h_unpack(Trobot_cam*h_pack(cieble_cam));
 % On retrouve la direction de translation
 dir = get_orientation(cible_base, trocard_base);
-decalage = h_unpack(Teff_inst(3,4)*h_pack(dir));
+decalage = Teff_inst(3,4).*dir;
 % On applique la transformation entre effecteur et l'instrument
 command = decalage + cible_base;
 MoveEffPosition(command)
@@ -270,3 +255,27 @@ DisplayConfig;
 plot_ellipsoid(center, rotation, diag(S), 10);
 disp('Elipsoide derreurs estimees')
 pause;
+
+%% Asservissement visuel
+% On veut amener l'instrument au point cieble
+% On commance par lui ecarter
+% sig_position = [10 10 10]';
+% command_i = command + sig_position.*randn(3,1);
+% MoveEffPosition(command_i);
+% % On compute le vecteur d'erreur de position qu'on veut minimiser
+% Tcam_inst = GetInstrumentPosition(flag_noise);
+% d_position = cieble_cam - get_translation(Tcam_inst);
+% pos_error = norm(d_position);
+% disp('Showing target position in image frame')
+% figure(2); hold on; grid on;
+% DisplayImage;
+% DisplayInstrument;
+% % Boucle d'asservissement
+% stop_criteria = 1e-3;
+% while (pos_error > stop_criteria)
+%     Tcam_inst = GetInstrumentPosition(flag_noise);
+%     d_position = cieble_cam - get_translation(Tcam_inst);
+%     command_i = command_i + h_unpack(Trobot_cam*h_pack(d_position)) + decalage;
+%     MoveEffPosition(command_i);
+%     pos_error = norm(d_position);
+% end
